@@ -130,7 +130,6 @@ html, body {
     -webkit-box-pack: center; -webkit-justify-content: center; justify-content: center;
 }
 
-/* ===== DYNAMIC BATTERY STYLE ===== */
 #bat-container {
     display: -webkit-inline-flex; display: inline-flex;
     -webkit-align-items: center; align-items: center;
@@ -224,18 +223,12 @@ html, body {
 </div>
 
 <script>
-// --- FULL WAKE LOCK SUPPORT ---
 function activateWakeLock() {
-    if ('wakeLock' in navigator) {
-        navigator.wakeLock.request('screen').catch(()=>{});
-    }
+    if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(()=>{});
     if (navigator.requestWakeLock) navigator.requestWakeLock('screen');
     if (navigator.keepWakeLock) navigator.keepWakeLock(true);
 }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') activateWakeLock(); });
-document.addEventListener('mousedown', activateWakeLock, {once: true});
-document.addEventListener('touchstart', activateWakeLock, {once: true});
-document.addEventListener('keydown', activateWakeLock, {once: true});
 activateWakeLock();
 
 var wrap = document.getElementById("wrap"), clockEl = document.getElementById("clock"), dateEl = document.getElementById("date");
@@ -319,18 +312,6 @@ let hideTimeout, isUserPressing = false;
 
 function isUIVisible() { return document.getElementById("controls").style.opacity !== "0"; }
 
-function toggleFullScreen() {
-    if (!document.fullscreenElement) {
-        document.documentElement.requestFullscreen().catch(err => {
-            console.log("Error attempting to enable full-screen mode");
-        });
-    } else {
-        if (document.exitFullscreen) {
-            document.exitFullscreen();
-        }
-    }
-}
-
 function showControls() {
     const controls = document.getElementById("controls");
     controls.style.opacity = "1";
@@ -342,7 +323,7 @@ function showControls() {
             controls.style.opacity = "0";
             controls.style.visibility = "hidden";
             controls.style.pointerEvents = "none";
-        }, 3000);
+        }, 5000);
     }
 }
 
@@ -351,60 +332,79 @@ document.body.addEventListener('click', (e) => {
     showControls();
 }, true);
 
-// --- UPDATED KEYPAD MAPPING (with Fullscreen) ---
+// Universal Logic for Long Press (Keys & Buttons)
+function startLogic(type, dir) {
+    isUserPressing = true; showControls(); isLongPress = false;
+    clearTimeout(longPressTimer); clearInterval(moveInterval);
+    longPressTimer = setTimeout(() => {
+        isLongPress = true;
+        moveInterval = setInterval(() => {
+            if (type === 'gap') {
+                if(isVertical) {
+                    clockGap = (dir === 'D') ? clockGap + 2 : Math.max(-100, clockGap - 2);
+                    applyAll();
+                } else { moveLogic(dir, false); }
+            } else if (type === 'dateOffset') {
+                moveLogic(dir === 'plus' ? 'D' : 'U', true);
+            } else if (type === 'pos') {
+                moveLogic(dir, false);
+            } else if (type === 'vtoggle') {
+                isDateVisible = !isDateVisible; applyAll(); saveSettings();
+                clearInterval(moveInterval);
+            }
+        }, 50);
+    }, 500);
+}
+
+function stopLogic(type, dir) {
+    if(!isUserPressing) return;
+    isUserPressing = false; clearTimeout(longPressTimer); clearInterval(moveInterval);
+    if (!isLongPress) {
+        if (type === 'gap' || type === 'pos') moveLogic(dir, false);
+        else if (type === 'dateOffset') {
+            if (dir === 'plus') dateScale += 0.02; else dateScale = Math.max(0.1, dateScale - 0.02);
+            applyAll();
+        } else if (type === 'vtoggle') {
+            isVertical = !isVertical; applyAll();
+        }
+    }
+    saveSettings(); showControls();
+}
+
+// KEYPAD EVENTS
 document.addEventListener('keydown', (e) => {
+    if(e.repeat) return;
     showControls();
     switch(e.key) {
-        case 'ArrowUp': moveLogic('U', false); break;
-        case 'ArrowDown': moveLogic('D', false); break;
-        case 'ArrowLeft': moveLogic('L', false); break;
-        case 'ArrowRight': moveLogic('R', false); break;
-        case 'Enter': case 'SoftCenter': isVertical = !isVertical; applyAll(); break;
+        case 'ArrowUp': startLogic('gap', 'U'); break;
+        case 'ArrowDown': startLogic('gap', 'D'); break;
+        case 'ArrowLeft': startLogic('pos', 'L'); break;
+        case 'ArrowRight': startLogic('pos', 'R'); break;
+        case '4': startLogic('dateOffset', 'minus'); break;
+        case '6': startLogic('dateOffset', 'plus'); break;
+        case '3': startLogic('vtoggle', ''); break;
         case '1': fontIdx=(fontIdx-1+fonts.length)%fonts.length; applyAll(); break;
-        case '3': fontIdx=(fontIdx+1)%fonts.length; applyAll(); break;
-        case '2': colorIdx=(colorIdx+1)%colors.length; applyAll(); break;
-        case '4': dateScale=Math.max(0.1, dateScale-0.02); applyAll(); break;
-        case '6': dateScale+=0.02; applyAll(); break;
+        case '2': fontIdx=(fontIdx+1)%fonts.length; applyAll(); break;
+        case '7': colorIdx=(colorIdx+1)%colors.length; applyAll(); break;
         case '5': rotateMode=(rotateMode+1)%3; applyAll(); break;
-        case '0': moveX=0; moveY=0; dateOffset=0; applyAll(); break;
-        case '*': bgIdx=(bgIdx+1)%bgColors.length; applyAll(); break;
-        case '#': isDateVisible=!isDateVisible; applyAll(); break;
-        case '9': case '8': toggleFullScreen(); break; // Key 9 for Fullscreen
+        case '0': moveX=0; moveY=0; dateOffset=0; clockGap=0; applyAll(); break;
+        case '9': bgIdx=(bgIdx+1)%bgColors.length; applyAll(); break;
+        case '*': isDateVisible=!isDateVisible; applyAll(); break;
+        case '#': if (!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); break;
     }
-    saveSettings();
 });
 
-function updateBattery() {
-    if (navigator.getBattery) {
-        navigator.getBattery().then(bat => {
-            batteryLevel = Math.floor(bat.level * 100) + "%";
-            bat.onlevelchange = () => { batteryLevel = Math.floor(bat.level * 100) + "%"; updateClock(); };
-        }).catch(()=>{ batteryLevel = "100%"; });
-    } else { batteryLevel = "100%"; }
-}
-updateBattery();
-
-function autoFitClock(){
-    document.documentElement.style.setProperty('--clock-size', "50px");
-    let w = window.innerWidth, h = window.innerHeight;
-    let usableW = (rotateMode === 0) ? w : h, usableH = (rotateMode === 0) ? h : w;
-    let originalGap = clockGap;
-    document.documentElement.style.setProperty('--clock-gap', "0px");
-    let textW = clockEl.offsetWidth;
-    let textH = clockEl.offsetHeight;
-    if(textW === 0 || textH === 0) return;
-    let scale;
-    if(!isVertical) {
-        scale = (usableW / textW) * 1.025;
-    } else {
-        scale = (usableW / textW); 
-        if((textH * scale) + (originalGap * 1.5) > usableH) scale = (usableH - originalGap) / textH;
+document.addEventListener('keyup', (e) => {
+    switch(e.key) {
+        case 'ArrowUp': stopLogic('gap', 'U'); break;
+        case 'ArrowDown': stopLogic('gap', 'D'); break;
+        case 'ArrowLeft': stopLogic('pos', 'L'); break;
+        case 'ArrowRight': stopLogic('pos', 'R'); break;
+        case '4': stopLogic('dateOffset', 'minus'); break;
+        case '6': stopLogic('dateOffset', 'plus'); break;
+        case '3': stopLogic('vtoggle', ''); break;
     }
-    let newSize = 50 * scale;
-    document.documentElement.style.setProperty('--clock-size', newSize + "px");
-    document.documentElement.style.setProperty('--clock-gap', originalGap + "px");
-    dateEl.style.marginTop = (newSize * 0.05) + "px";
-}
+});
 
 function applyAll(){
     document.documentElement.style.setProperty('--move-x', moveX+"px");
@@ -421,6 +421,34 @@ function applyAll(){
     setTimeout(autoFitClock, 10);
 }
 
+function autoFitClock(){
+    document.documentElement.style.setProperty('--clock-size', "50px");
+    let w = window.innerWidth, h = window.innerHeight;
+    let usableW = (rotateMode === 0) ? w : h, usableH = (rotateMode === 0) ? h : w;
+    let originalGap = clockGap;
+    document.documentElement.style.setProperty('--clock-gap', "0px");
+    let textW = clockEl.offsetWidth;
+    let textH = clockEl.offsetHeight;
+    if(textW === 0 || textH === 0) return;
+    let scale = !isVertical ? (usableW / textW) * 1.025 : (usableW / textW); 
+    if(isVertical && (textH * scale) + (originalGap * 1.5) > usableH) scale = (usableH - originalGap) / textH;
+    let newSize = 50 * scale;
+    document.documentElement.style.setProperty('--clock-size', newSize + "px");
+    document.documentElement.style.setProperty('--clock-gap', originalGap + "px");
+}
+
+function moveLogic(dir, isDate) {
+    if(!isUIVisible()) return;
+    let step = 8;
+    if (isDate) {
+        if (dir === 'U') dateOffset -= step; if (dir === 'D') dateOffset += step;
+    } else {
+        if (dir === 'U') moveY -= step; if (dir === 'D') moveY += step;
+        if (dir === 'L') moveX -= step; if (dir === 'R') moveX += step;
+    }
+    applyAll();
+}
+
 function saveSettings(){
     localStorage.setItem("jio_font", fontIdx); localStorage.setItem("jio_color", colorIdx);
     localStorage.setItem("jio_bg", bgIdx); localStorage.setItem("jio_rotate", rotateMode);
@@ -430,112 +458,45 @@ function saveSettings(){
     localStorage.setItem("jio_vertical", isVertical);
 }
 
-function moveLogic(dir, isDate) {
-    if(!isUIVisible()) return;
-    let step = 8;
-    if (isDate) {
-        if (rotateMode === 0) { if (dir === 'U') dateOffset -= step; if (dir === 'D') dateOffset += step; }
-        else if (rotateMode === 1) { if (dir === 'L') dateOffset -= step; if (dir === 'R') dateOffset += step; }
-        else if (rotateMode === 2) { if (dir === 'L') dateOffset += step; if (dir === 'R') dateOffset -= step; }
-    } else {
-        if (dir === 'U') moveY -= step; if (dir === 'D') moveY += step;
-        if (dir === 'L') moveX -= step; if (dir === 'R') moveX += step;
-    }
-    applyAll();
-}
-
-function startMove(dir) {
-    if(!isUIVisible()) return;
-    isUserPressing = true; showControls(); isLongPress = false;
-    clearTimeout(longPressTimer); clearInterval(moveInterval);
-    longPressTimer = setTimeout(() => {
-        isLongPress = true;
-        moveInterval = setInterval(() => {
-            let canMoveDate = (rotateMode === 0 && (dir === 'U' || dir === 'D')) || (rotateMode !== 0 && (dir === 'L' || dir === 'R'));
-            moveLogic(dir, canMoveDate);
-        }, 50);
-    }, 500);
-}
-
-function handleDButton(id, state) {
-    if(!isUIVisible() && state === 'start') return;
-    const isPlus = id === "datePlus";
-    if(state === 'start') {
-        isUserPressing = true; showControls(); isLongPress = false;
-        clearInterval(moveInterval);
-        longPressTimer = setTimeout(() => {
-            isLongPress = true;
-            moveInterval = setInterval(() => {
-                if(isVertical) {
-                    clockGap = isPlus ? clockGap + 2 : Math.max(-100, clockGap - 2);
-                    document.documentElement.style.setProperty('--clock-gap', clockGap + "px");
-                    autoFitClock();
-                }
-            }, 50);
-        }, 500);
-    } else {
-        isUserPressing = false; clearTimeout(longPressTimer); clearInterval(moveInterval);
-        if(!isLongPress && state !== 'cancel') {
-            if(isPlus) dateScale += 0.02; else dateScale = Math.max(0.1, dateScale - 0.02);
-            applyAll();
-        }
-        saveSettings(); showControls(); 
-    }
-}
-
+// SCREEN BUTTON EVENTS
 ['U','D','L','R'].forEach(d => {
     let btn = document.getElementById("move"+d);
-    btn.onmousedown = btn.ontouchstart = (e) => { e.preventDefault(); startMove(d); };
-    btn.onmouseup = btn.ontouchend = () => {
-        if(!isUserPressing) return;
-        isUserPressing = false; clearTimeout(longPressTimer); clearInterval(moveInterval);
-        if(!isLongPress) moveLogic(d, false);
-        saveSettings(); showControls(); 
-    };
-    btn.onmouseleave = () => { if(isUserPressing) { isUserPressing = false; clearTimeout(longPressTimer); clearInterval(moveInterval); showControls(); } };
+    btn.onmousedown = btn.ontouchstart = (e) => { e.preventDefault(); startLogic((d==='U'||d==='D')?'gap':'pos', d); };
+    btn.onmouseup = btn.ontouchend = () => stopLogic((d==='U'||d==='D')?'gap':'pos', d);
 });
 
 ['datePlus', 'dateMinus'].forEach(id => {
     let btn = document.getElementById(id);
-    btn.onmousedown = btn.ontouchstart = (e) => { e.preventDefault(); handleDButton(id, 'start'); };
-    btn.onmouseup = btn.ontouchend = () => handleDButton(id, 'stop');
-    btn.onmouseleave = () => handleDButton(id, 'cancel');
+    btn.onmousedown = btn.ontouchstart = (e) => { e.preventDefault(); startLogic('dateOffset', id === 'datePlus' ? 'plus' : 'minus'); };
+    btn.onmouseup = btn.ontouchend = () => stopLogic('dateOffset', id === 'datePlus' ? 'plus' : 'minus');
 });
 
-document.getElementById("layoutBtn").onclick = () => { if(!isUIVisible()) return; isVertical = !isVertical; saveSettings(); applyAll(); showControls(); };
-document.getElementById("fullScreenBtn").onclick = toggleFullScreen;
-
-let rotateTimer;
-let rotateBtn = document.getElementById("rotateBtn");
-rotateBtn.onmousedown = rotateBtn.ontouchstart = (e) => {
-    if(!isUIVisible()) return;
-    e.preventDefault(); isUserPressing = true; showControls(); isLongPress = false;
-    rotateTimer = setTimeout(() => { isLongPress = true; isDateVisible = !isDateVisible; saveSettings(); applyAll(); }, 1000);
-};
-rotateBtn.onmouseup = rotateBtn.ontouchend = () => {
-    if(!isUserPressing) return;
-    isUserPressing = false; clearTimeout(rotateTimer);
-    if (!isLongPress) { rotateMode = (rotateMode + 1) % 3; saveSettings(); applyAll(); }
-    showControls();
-};
-
-document.getElementById("fontNextBtn").onclick=()=>{ if(!isUIVisible()) return; fontIdx=(fontIdx+1)%fonts.length;saveSettings();applyAll();showControls();};
-document.getElementById("fontPrevBtn").onclick=()=>{ if(!isUIVisible()) return; fontIdx=(fontIdx-1+fonts.length)%fonts.length;saveSettings();applyAll();showControls();};
-document.getElementById("colorBtn").onclick=()=>{ if(!isUIVisible()) return; colorIdx=(colorIdx+1)%colors.length;saveSettings();applyAll();showControls();};
-document.getElementById("bgColorBtn").onclick=()=>{ if(!isUIVisible()) return; bgIdx=(bgIdx+1)%bgColors.length;saveSettings();applyAll();showControls();};
-document.getElementById("resetPosBtn").onclick = () => { if(!isUIVisible()) return; moveX=0; moveY=0; clockGap=0; dateOffset=0; saveSettings(); applyAll(); showControls(); };
+let layoutBtn = document.getElementById("layoutBtn");
+layoutBtn.onmousedown = layoutBtn.ontouchstart = (e) => { e.preventDefault(); startLogic('vtoggle', ''); };
+layoutBtn.onmouseup = layoutBtn.ontouchend = () => stopLogic('vtoggle', '');
 
 function updateClock(){
     var d=new Date(), h=d.getHours()%12||12, m=d.getMinutes();
     hh.innerHTML=(h<10?"0"+h:h); mm.innerHTML=(m<10?"0"+m:m);
     colon.style.visibility=showColon?"visible":"hidden"; showColon=!showColon;
-    let fillW = (parseInt(batteryLevel) || 0) + "%"; 
-    let batHTML = `<span id="bat-container"><span id="bat-fill" style="width: ${fillW}"></span><span id="bat-text">${batteryLevel}</span></span>`;
-    dateEl.innerHTML = days[d.getDay()] + "-" + (d.getDate()<10?"0"+d.getDate():d.getDate()) + " " + months[d.getMonth()] + " " + batHTML;
+    if (navigator.getBattery) {
+        navigator.getBattery().then(bat => {
+            let level = Math.floor(bat.level * 100) + "%";
+            let batHTML = `<span id="bat-container"><span id="bat-fill" style="width: ${level}"></span><span id="bat-text">${level}</span></span>`;
+            dateEl.innerHTML = days[d.getDay()] + "-" + (d.getDate()<10?"0"+d.getDate():d.getDate()) + " " + months[d.getMonth()] + " " + batHTML;
+        });
+    }
     autoFitClock();
 }
 
-window.onresize=autoFitClock;
+document.getElementById("rotateBtn").onclick = () => { rotateMode = (rotateMode + 1) % 3; saveSettings(); applyAll(); };
+document.getElementById("fontNextBtn").onclick=()=>{ fontIdx=(fontIdx+1)%fonts.length;saveSettings();applyAll();};
+document.getElementById("fontPrevBtn").onclick=()=>{ fontIdx=(fontIdx-1+fonts.length)%fonts.length;saveSettings();applyAll();};
+document.getElementById("colorBtn").onclick=()=>{ colorIdx=(colorIdx+1)%colors.length;saveSettings();applyAll();};
+document.getElementById("bgColorBtn").onclick=()=>{ bgIdx=(bgIdx+1)%bgColors.length;saveSettings();applyAll();};
+document.getElementById("resetPosBtn").onclick = () => { moveX=0; moveY=0; clockGap=0; dateOffset=0; saveSettings(); applyAll(); };
+document.getElementById("fullScreenBtn").onclick = () => { if (!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); };
+
 setInterval(updateClock,1000);
 updateClock(); applyAll();
 </script>
