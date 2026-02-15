@@ -166,11 +166,12 @@ html, body {
     </div>
     <div style="display: flex; gap: 4px; justify-content: center;">
         <button class="control-btn" id="resetPosBtn">RST</button>
+        <button class="control-btn" id="fullScreenBtn">FS</button>
     </div>
 </div>
 
 <script>
-// --- FULL WAKE LOCK SUPPORT (Jio Edition Injected) ---
+// --- FULL WAKE LOCK SUPPORT ---
 function activateWakeLock() {
     if ('wakeLock' in navigator) {
         navigator.wakeLock.request('screen').catch(()=>{});
@@ -179,7 +180,6 @@ function activateWakeLock() {
     if (navigator.keepWakeLock) navigator.keepWakeLock(true);
 }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') activateWakeLock(); });
-// Trigger on interaction for browser policies
 document.addEventListener('mousedown', activateWakeLock, {once: true});
 document.addEventListener('touchstart', activateWakeLock, {once: true});
 document.addEventListener('keydown', activateWakeLock, {once: true});
@@ -193,7 +193,6 @@ var colors = ["#ffffff","#000000","#ff3b3b","#ff9800","#ffeb3b","#4caf50","#00e5
 var bgColors = ["#000000","#0a0a0a","#111111","#181818","#222222","#001f3f","#1b0333","#002b36","#2d0a31","#111","#333","#ffffff","#f2f2f2","#e0e0e0","#cccccc","#a9a9a9","#808080","#dcdcdc","#f5f5f5","#dc143c","#2196f3","#4caf50","#ff9800","#673ab7","#330000","#003300","#000033"];
 var days = ["SUN","MON","TUE","WED","THU","FRI","SAT"], months = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
 
-// Memory Management
 var fontIdx = parseInt(localStorage.getItem("jio_font")) || 0;
 var colorIdx = parseInt(localStorage.getItem("jio_color")) || 0;
 var bgIdx = parseInt(localStorage.getItem("jio_bg")) || 0;
@@ -206,12 +205,22 @@ var clockGap = parseInt(localStorage.getItem("jio_clockGap")) || 0;
 var isDateVisible = localStorage.getItem("jio_dateVisible") !== "false";
 var isVertical = localStorage.getItem("jio_vertical") === "true";
 
-var batteryLevel = "0%";
-var showColon = true;
-var moveInterval = null, longPressTimer = null, isLongPress = false;
+var batteryLevel = "0%", showColon = true, moveInterval = null, longPressTimer = null, isLongPress = false;
 let hideTimeout, isUserPressing = false; 
 
 function isUIVisible() { return document.getElementById("controls").style.opacity !== "0"; }
+
+function toggleFullScreen() {
+    if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(err => {
+            console.log("Error attempting to enable full-screen mode");
+        });
+    } else {
+        if (document.exitFullscreen) {
+            document.exitFullscreen();
+        }
+    }
+}
 
 function showControls() {
     const controls = document.getElementById("controls");
@@ -233,7 +242,7 @@ document.body.addEventListener('click', (e) => {
     showControls();
 }, true);
 
-// --- KEYPAD MAPPING ---
+// --- UPDATED KEYPAD MAPPING (with Fullscreen) ---
 document.addEventListener('keydown', (e) => {
     showControls();
     switch(e.key) {
@@ -251,6 +260,7 @@ document.addEventListener('keydown', (e) => {
         case '0': moveX=0; moveY=0; dateOffset=0; applyAll(); break;
         case '*': bgIdx=(bgIdx+1)%bgColors.length; applyAll(); break;
         case '#': isDateVisible=!isDateVisible; applyAll(); break;
+        case '9': case '8': toggleFullScreen(); break; // Key 9 for Fullscreen
     }
     saveSettings();
 });
@@ -266,7 +276,7 @@ function updateBattery() {
 updateBattery();
 
 function autoFitClock(){
-    document.documentElement.style.setProperty('--clock-size',"50px");
+    document.documentElement.style.setProperty('--clock-size', "50px");
     let w = window.innerWidth, h = window.innerHeight;
     let usableW = (rotateMode === 0) ? w : h, usableH = (rotateMode === 0) ? h : w;
     let originalGap = clockGap;
@@ -384,6 +394,7 @@ function handleDButton(id, state) {
 });
 
 document.getElementById("layoutBtn").onclick = () => { if(!isUIVisible()) return; isVertical = !isVertical; saveSettings(); applyAll(); showControls(); };
+document.getElementById("fullScreenBtn").onclick = toggleFullScreen;
 
 let rotateTimer;
 let rotateBtn = document.getElementById("rotateBtn");
